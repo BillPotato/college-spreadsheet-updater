@@ -7,6 +7,8 @@ import ezsheets, requests, time
 from bs4 import BeautifulSoup
 from threading import Thread
 from confiq import spreadsheet_id, FIELDS
+from state_abbreviations import state_abbreviations_dict
+from time import sleep
 
 
 # prevent blocking
@@ -109,6 +111,8 @@ def get_info(missing_info: str, college_soup) -> str:
             selector = "span.NuggetsContainer__LocationSpan-sc-108otk5-0.GXzCk.mr2"
             tag_text = college_soup.select(selector)[0].getText()
             tag_text = tag_text[tag_text.find("•")+2:]
+            state_portion = tag_text[-2:]
+            tag_text = tag_text.replace(state_portion, state_abbreviations_dict[state_portion])
         case "setting":
             selector = "p.Paragraph-sc-1iyax29-0.kqzqfx"
             tag_text = college_soup.select(selector)[0].getText()
@@ -130,6 +134,7 @@ def main():
     # start fetching information
     college_threads = []
     for row in updatable_rows:
+        sleep(0.01)
         college_thread = ThreadWithReturnValue(target=update_college, args=[spreadsheet_rows[row], key_columns])
         college_threads.append(college_thread)
         college_thread.start()
