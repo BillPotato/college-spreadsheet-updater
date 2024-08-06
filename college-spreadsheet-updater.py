@@ -1,19 +1,20 @@
 #!python 3
 
-# Info that can be updated:
-# school population, location, overall ranking, setting, acceptance rate
+# Stats that can be updated:
+# "school population", "location", "overall ranking", "setting", "acceptance", "sat"
 
 import ezsheets, requests, time
 from bs4 import BeautifulSoup
 from threading import Thread
-from confiq import spreadsheet_id, FIELDS
+import confiq
 from state_abbreviations import state_abbreviations_dict
 from time import sleep
-
+# from pprint import pformat
 
 # prevent blocking
 newheaders = {
     'User-Agent': 'Mozilla/5.0 (X11; Linux i686 on x86_64)'
+    # Alternative: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:121.0) Gecko/20100101 Firefox/121.0'
 }
 
 # Custom threading class to return value
@@ -46,15 +47,18 @@ def update_spreadsheet(sheet_id, rows):
     print("Spreadsheet uploaded!")
     
 # Find where all the columns of info that can be updated are
-# FIELDS = ["school population", "location", "overall ranking", "setting", "acceptance"]
+# sheet = spreadsheet_rows()
+# FIELDS = ["school population", "location", "overall ranking", "setting", "acceptance", "
 def generate_key_columns(sheet: list, FIELDS) -> dict:
     key_columns = {}
     for column, header in enumerate(sheet[0]):
         if header.lower() in FIELDS:
             key_columns[column] = header.lower()
+#     print(f"Key columns: {key_columns}")
     return key_columns
 
-def get_updatable_colleges_rows(sheet: list, key_columns: list[int]) -> list[int]:
+# sheet = spreadsheet_rows()
+def get_updatable_college_rows(sheet: list, key_columns: list[int]) -> list[int]:
     colleges = sheet[1:] #remove header row
     updatable_rows = []
     row = 0 # start at row 1 (row 0 is header)
@@ -102,7 +106,11 @@ def update_college(college, key_columns):
     return college
 
 
-def get_info(missing_info: str, college_soup) -> str:
+def get_info(missing_info: str, college_soup) -> str: # college_soup is of type BeautifulSoup
+    
+    tag_text = "Error: Could not match missing_info! (Please report to dev)"
+    # Error handler
+    
     match missing_info:
         case "overall ranking":
             selector = "span.Villain__RankingSpan-sc-8s66oj-4.fDSmVR > span"
@@ -122,19 +130,31 @@ def get_info(missing_info: str, college_soup) -> str:
         case "acceptance":
             selector = "p.Paragraph-sc-1iyax29-0.kqzqfx"
             tag_text = college_soup.select(selector)[3].getText()
-    
+        case "sat":
+            selector = "p.Paragraph-sc-1iyax29-0.kqzqfx"
+            tag_text = college_soup.select(selector)[4].getText()
+        case "act":
+            selector = "p.Paragraph-sc-1iyax29-0.kqzqfx"
+            tag_text = college_soup.select(selector)[5].getText()
+        case "gpa":
+            selector = "p.Paragraph-sc-1iyax29-0.kqzqfx"
+            tag_text = college_soup.select(selector)[6].getText()
     return tag_text
         
     
 def main():
-    spreadsheet_rows = get_spreadsheet_rows(spreadsheet_id)
-    key_columns = generate_key_columns(spreadsheet_rows, FIELDS)
-    updatable_rows = get_updatable_colleges_rows(spreadsheet_rows, key_columns)
+#     spreadsheet_id = [REDACTED]
+    
+    spreadsheet_rows = get_spreadsheet_rows(confiq.spreadsheet_id)
+    key_columns = generate_key_columns(spreadsheet_rows, confiq.FIELDS)
+#     print(f"Key columns: {key_columns}")
+    updatable_rows = get_updatable_college_rows(spreadsheet_rows, key_columns)
+#     print(f"Updatable rows: {updatable_rows}")
     
     # start fetching information
     college_threads = []
     for row in updatable_rows:
-        sleep(0.01)
+        sleep(0.3)
         college_thread = ThreadWithReturnValue(target=update_college, args=[spreadsheet_rows[row], key_columns])
         college_threads.append(college_thread)
         college_thread.start()
@@ -144,7 +164,12 @@ def main():
         spreadsheet_rows[row] = college_threads[thread_idx].join()
         thread_idx +=1
     
-    update_spreadsheet(spreadsheet_id, spreadsheet_rows)
+    # print(f"Threads: {college_threads}")
+    
+#     with open("rows.py", "w") as file:
+#         file.write(pformat(spreadsheet_rows))
+    
+    update_spreadsheet(confiq.spreadsheet_id, spreadsheet_rows)
     
     
 if __name__ == "__main__":
