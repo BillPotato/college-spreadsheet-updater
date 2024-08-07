@@ -1,15 +1,15 @@
 #!python 3
 
 # Stats that can be updated:
-# "school population", "location", "overall ranking", "setting", "acceptance", "sat"
+# "school population", "location", "overall ranking", "setting", "acceptance", "sat", "act", "gpa"
 
-import ezsheets, requests, time
+import ezsheets, requests
 from bs4 import BeautifulSoup
 from threading import Thread
-import confiq
-from state_abbreviations import state_abbreviations_dict
-from time import sleep
-# from pprint import pformat
+from tqdm import tqdm
+from json.decoder import JSONDecodeError # Error handling
+import confiq # File
+from state_abbreviations import state_abbreviations_dict # File
 
 # prevent blocking
 newheaders = {
@@ -47,18 +47,15 @@ def update_spreadsheet(sheet_id, rows):
     print("Spreadsheet uploaded!")
     
 # Find where all the columns of info that can be updated are
-# sheet = spreadsheet_rows()
-# FIELDS = ["school population", "location", "overall ranking", "setting", "acceptance", "
+# FIELDS = "school population", "location", "overall ranking", "setting", "acceptance", "sat", "act", "gpa"]
 def generate_key_columns(sheet: list, FIELDS) -> dict:
     key_columns = {}
     for column, header in enumerate(sheet[0]):
         if header.lower() in FIELDS:
             key_columns[column] = header.lower()
-#     print(f"Key columns: {key_columns}")
     return key_columns
 
-# sheet = spreadsheet_rows()
-def get_updatable_college_rows(sheet: list, key_columns: list[int]) -> list[int]:
+def get_updatable_college_rows(sheet: list, key_columns: dict[int, str]) -> list[int]:
     colleges = sheet[1:] #remove header row
     updatable_rows = []
     row = 0 # start at row 1 (row 0 is header)
@@ -84,13 +81,11 @@ def update_college(college, key_columns):
         else: pass
     
     # Fetch the results page for the "{college_name}" search
-    print(f"Fetching result page for {college_name}...")
     results_page = requests.get("https://www.usnews.com/search?q=" + college_name, headers =  newheaders)
     results_page.raise_for_status()
     results_soup = BeautifulSoup(results_page.text, "html.parser")
     
     # Fetch first result's link
-    print(f"Fetching page for {college_name}...")
     first_result_tag = results_soup.select("a.Anchor-byh49a-0.MediaObjectBox__AnchorWrap-sc-7ytr6b-5.eMEqFO.bbyhFG")[0]
     college_page = requests.get(first_result_tag.get("href"), headers = newheaders)
     college_page.raise_for_status()
@@ -109,7 +104,7 @@ def update_college(college, key_columns):
 def get_info(missing_info: str, college_soup) -> str: # college_soup is of type BeautifulSoup
     
     tag_text = "Error: Could not match missing_info! (Please report to dev)"
-    # Error handler
+    # Error handler (just in case)
     
     match missing_info:
         case "overall ranking":
@@ -143,33 +138,30 @@ def get_info(missing_info: str, college_soup) -> str: # college_soup is of type 
         
     
 def main():
-#     spreadsheet_id = [REDACTED]
-    
-    spreadsheet_rows = get_spreadsheet_rows(confiq.spreadsheet_id)
+    try:
+        spreadsheet_rows = get_spreadsheet_rows(confiq.spreadsheet_id)
+    except JSONDecodeError as e:
+        print(f"Error: {e} while fetching. Try again!")
+        
     key_columns = generate_key_columns(spreadsheet_rows, confiq.FIELDS)
-#     print(f"Key columns: {key_columns}")
     updatable_rows = get_updatable_college_rows(spreadsheet_rows, key_columns)
-#     print(f"Updatable rows: {updatable_rows}")
     
     # start fetching information
     college_threads = []
     for row in updatable_rows:
-        sleep(0.3)
         college_thread = ThreadWithReturnValue(target=update_college, args=[spreadsheet_rows[row], key_columns])
         college_threads.append(college_thread)
         college_thread.start()
     
-    thread_idx = 0
-    for row in updatable_rows:
+    bar_format = "{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} {unit}"
+    for thread_idx, row in enumerate(tqdm(updatable_rows, desc="Updating colleges", unit="colleges", bar_format=bar_format)):
         spreadsheet_rows[row] = college_threads[thread_idx].join()
         thread_idx +=1
-    
-    # print(f"Threads: {college_threads}")
-    
-#     with open("rows.py", "w") as file:
-#         file.write(pformat(spreadsheet_rows))
-    
-    update_spreadsheet(confiq.spreadsheet_id, spreadsheet_rows)
+
+    try:
+        update_spreadsheet(confiq.spreadsheet_id, spreadsheet_rows)
+    except JSONDecodeError as e:
+        print(f"Error: {e} while uploading. Try again!")
     
     
 if __name__ == "__main__":
