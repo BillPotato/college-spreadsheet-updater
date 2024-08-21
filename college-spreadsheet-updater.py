@@ -1,7 +1,9 @@
-#!python 3
+# college-spreadsheet-updater.py
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Updates your Google Spreadsheet college spreadsheet with the following statistics from US NEWS:
+# overall ranking, location, setting, school population, acceptance, sat, act, gpa
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-# Stats that can be updated:
-# "school population", "location", "overall ranking", "setting", "acceptance", "sat", "act", "gpa"
 
 import requests
 import ezsheets
@@ -15,13 +17,6 @@ from tqdm import tqdm
 from json.decoder import JSONDecodeError # For error handler
 import confiq # File
 import state_abbreviations # File
-
-
-# Prevent blocking
-newheaders = {
-    'User-Agent': 'Mozilla/5.0 (X11; Linux i686 on x86_64)'
-#     'User-Agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:121.0) Gecko/20100101 Firefox/121.0'
-}
 
 
 class college_sheet:
@@ -53,7 +48,7 @@ class college_sheet:
 
         for row, college_name in enumerate(self.college_name_column[1:]):
             if not(re.compile(r"^(\s)*$").search(college_name)):
-            # ^checks if there are characters other than space/tab/newline in string
+            # ^checks if cell contains only space characters
                 college_obj = college(row +1, self.rows[row +1])
                 
                 if not college_obj.is_filled(self.key_columns):
@@ -67,7 +62,7 @@ class college_sheet:
         bar_format = "{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} {unit}"
         
         for college in tqdm(self.unfilled_colleges, desc="Creating threads", unit="threads", bar_format=bar_format):
-            time.sleep(random.uniform(0.3, 0.5))
+            time.sleep(random.uniform(0.1, 0.3))
             college_updating_thread = Thread(target=college.update, args=[self.key_columns])
             college_updating_threads.append(college_updating_thread)
             college_updating_thread.start()
@@ -83,7 +78,7 @@ class college:
     def __init__(self, row_idx: int, row: list):
         self.row_idx: int = row_idx # index in college_sheet.rows
         self.row: list = row
-        self.name: str = self.row[0]
+        self.name: str = "".join([char for char in self.row[0] if (char.isdigit() or char.isalpha() or char == " ")])
         self.unfilled_cells: list[int] = []
         
     
@@ -98,18 +93,38 @@ class college:
         
     def update(self, key_columns): # Run is_filled first
         
-        def get_stat(missing_stat: str, college_soup): # college_soup is of type BeautifulSoup
+        def get_stat(missing_stat: str, college_soup: Type[BeautifulSoup]):
             
             tag_text = "Error: Could not match missing_stat!"
             # Error handler (just in case)
             
-            tag_invalidation_text = "TBA"
+            tag_invalidation_text = "Error: Invalid stat format!"
             
             match missing_stat:
+
                 case "overall ranking":
                     selector = "span.Villain__RankingSpan-sc-8s66oj-4.fDSmVR > span"
-                    tag_text = college_soup.select(selector)[0].getText()[1:]
-                    if not tag_text.isdigit(): tag_text = tag_invalidation_text
+                    tag_text = college_soup.select(selector)[0].getText().replace("#","")
+                    
+
+                    if not (tag_text.isdigit() or tag_text == "Unranked" or "-" in tag_text):
+                        print(f"Invalid ranking format: {tag_text}")
+                        tag_text = tag_invalidation_text
+                    else: pass
+
+                    
+                case "institution type":
+                    selector = "a.Anchor-byh49a-0.Villain__BlueAnchor-sc-8s66oj-2.eMEqFO.lpmuwH > span"
+                    tag_text = college_soup.select(selector)[0].getText()
+                    
+                    match tag_text:
+                        case "National Universities":
+                            tag_text = "NU"
+                        case "National Liberal Arts Colleges":
+                            tag_text = "LAC"
+                        case _:
+                            tag_text = "Regional/Others"
+
                 case "location":
                     selector = "span.NuggetsContainer__LocationSpan-sc-108otk5-0.GXzCk.mr2"
                     tag_text = college_soup.select(selector)[0].getText()
@@ -147,16 +162,17 @@ class college:
         
         
         # Fetch result page for college
-#         print(f"Fetching result page for {self.name}...")
-        results_page = requests.get("https://www.usnews.com/search?q=" + self.name, headers =  newheaders)
+        results_page = requests.get("https://www.usnews.com/search?q=" + self.name, headers =  confiq.newheaders)
         results_page.raise_for_status()
         results_soup = BeautifulSoup(results_page.text, "html.parser")
         
         
         # Fetch page for college
-#         print(f"Fetching page for {self.name}...")
-        first_result_tag = results_soup.select("a.Anchor-byh49a-0.MediaObjectBox__AnchorWrap-sc-7ytr6b-5.eMEqFO.bbyhFG")[0]
-        college_page = requests.get(first_result_tag.get("href"), headers = newheaders)
+        try:
+            first_result_tag = results_soup.select("a.Anchor-byh49a-0.MediaObjectBox__AnchorWrap-sc-7ytr6b-5.eMEqFO.bbyhFG")[0]
+        except IndexError:
+            print(f"IndexError: {self.name}")
+        college_page = requests.get(first_result_tag.get("href"), headers = confiq.newheaders)
         college_page.raise_for_status()
         college_soup = BeautifulSoup(college_page.text, "html.parser")
         
@@ -166,7 +182,7 @@ class college:
             try:
                 self.row[unfilled_cell] = get_stat(unfilled_stat_header, college_soup)
             except IndexError:
-                self.row[unfilled_cell] = "Error: Could not find element!"
+                self.row[unfilled_cell] = f"Error: Could not find element!"
             # Error handler
         
 
